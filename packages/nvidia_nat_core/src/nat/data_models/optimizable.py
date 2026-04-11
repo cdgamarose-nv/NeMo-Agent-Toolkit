@@ -43,6 +43,11 @@ class SearchSpace(BaseModel, Generic[T]):
     prompt: str | None = None  # prompt to optimize
     prompt_purpose: str | None = None  # purpose of the prompt
     prompt_format: Literal["f-string", "jinja2", "mustache"] | None = None  # auto-detected if None
+    prompt_store: str | None = None  # registered store name to warm-start from
+    prompt_name: str | None = None  # store key e.g. "deep_researcher/orchestrator"
+    prompt_version: str = "latest"  # version or alias to load
+    prompt_output_store: str | None = None  # store to save best result to
+    prompt_output_version: str | None = None  # version for saved result; auto-generates if None
 
     model_config = ConfigDict(protected_namespaces=(), extra="forbid")
 
@@ -58,6 +63,11 @@ class SearchSpace(BaseModel, Generic[T]):
                 raise ValueError("SearchSpace with 'is_prompt=True' cannot have 'log=True'")
             if self.step is not None:
                 raise ValueError("SearchSpace with 'is_prompt=True' cannot have 'step' parameter")
+            # Prompt store validation
+            if self.prompt_store is not None and self.prompt_name is None:
+                raise ValueError("SearchSpace 'prompt_store' requires 'prompt_name' to be set")
+            if self.prompt_output_store is not None and self.prompt_name is None:
+                raise ValueError("SearchSpace 'prompt_output_store' requires 'prompt_name' to be set")
             return self
 
         # 2. Values-based validation
@@ -170,10 +180,10 @@ def OptimizableField(
 
     # 2. If the space is a prompt, ensure a concrete base prompt exists
     if space is not None and getattr(space, "is_prompt", False):
-        if getattr(space, "prompt", None) is None:
+        if getattr(space, "prompt", None) is None and not getattr(space, "prompt_store", None):
             if default is None:
                 raise ValueError("Prompt-optimized fields require a base prompt: provide a "
-                                 "non-None field default or set space.prompt.")
+                                 "non-None field default, set space.prompt, or set space.prompt_store.")
             # Default prompt not provided in space; fall back to the field's default
             space.prompt = default
 

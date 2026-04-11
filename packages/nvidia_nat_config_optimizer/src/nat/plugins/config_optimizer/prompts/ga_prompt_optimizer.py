@@ -22,6 +22,8 @@ import json
 import logging
 import random
 from collections.abc import Sequence
+from datetime import UTC
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
@@ -410,6 +412,35 @@ class GAPromptOptimizer(BasePromptOptimizer):
         trial_number_offset: int = 0,
         frozen_params: dict[str, Any] | None = None,
     ) -> None:
+        # Warm-start: load prompts from store when prompt_store/prompt_name are set
+        from nat.prompt_store.registry import get_prompt_store_or_none
+        for k, ss in full_space.items():
+            if ss.is_prompt and ss.prompt_store and ss.prompt_name:
+                store = get_prompt_store_or_none(ss.prompt_store)
+                if store is not None:
+                    try:
+                        record = await store.get(ss.prompt_name, ss.prompt_version)
+                        ss.prompt = record.content
+                        logger.info(
+                            "Warm-started '%s' from store '%s' @ %s",
+                            ss.prompt_name,
+                            ss.prompt_store,
+                            ss.prompt_version,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Could not load prompt '%s' from store '%s': %s; using inline prompt.",
+                            ss.prompt_name,
+                            ss.prompt_store,
+                            exc,
+                        )
+                else:
+                    logger.warning(
+                        "Prompt store '%s' not registered; skipping warm-start for '%s'.",
+                        ss.prompt_store,
+                        k,
+                    )
+
         prompt_space: dict[str, tuple[str, str]] = {
             k: (v.prompt, v.prompt_purpose)
             for k, v in full_space.items() if v.is_prompt
@@ -686,4 +717,40 @@ class GAPromptOptimizer(BasePromptOptimizer):
                 pop_size,
             )
             self._persist_final(best, history_rows, prompt_space, out_dir)
+
+            # Save-at-end: write best prompts back to configured output stores
+            from nat.prompt_store.model import PromptRecord
+            from nat.prompt_store.registry import get_prompt_store_or_none as _get_store
+            for k, ss in full_space.items():
+                if not (ss.is_prompt and ss.prompt_output_store and ss.prompt_name):
+                    continue
+                content = best.prompts.get(k)
+                if content is None:
+                    continue
+                store = _get_store(ss.prompt_output_store)
+                if store is None:
+                    logger.warning(
+                        "Output store '%s' not registered; skipping save for '%s'.",
+                        ss.prompt_output_store,
+                        k,
+                    )
+                    continue
+                version = ss.prompt_output_version or f"opt-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+                record = PromptRecord(
+                    name=ss.prompt_name,
+                    version=version,
+                    content=content,
+                    tags=("optimized", "draft"),
+                )
+                try:
+                    await store.put(record)
+                    logger.info(
+                        "Saved optimized prompt '%s' @ %s to store '%s'",
+                        ss.prompt_name,
+                        version,
+                        ss.prompt_output_store,
+                    )
+                except Exception as exc:
+                    logger.warning("Could not save optimized prompt '%s': %s", ss.prompt_name, exc)
+
             logger.info("Prompt GA optimization finished successfully!")
