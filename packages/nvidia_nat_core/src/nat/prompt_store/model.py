@@ -34,7 +34,7 @@ class PromptRecord:
 
     Attributes:
         name: Logical identifier, may contain ``/`` for namespacing
-              (e.g. ``deep_researcher/orchestrator``).
+              (e.g. ``my_agent/system``).
         version: Semantic version string (e.g. ``1.2.0``, ``1.2.0-opt.3``).
         content: Raw template string (Jinja2, f-string, or plain text).
         format: Template engine – ``jinja2`` (default), ``f-string``, or

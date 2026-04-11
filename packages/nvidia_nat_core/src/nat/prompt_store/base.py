@@ -23,7 +23,6 @@ from typing import Any
 
 from .model import PromptRecord
 
-
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -74,7 +73,7 @@ class PromptStore(ABC):
         resolved to the canonical version string first.
 
         Args:
-            name: Logical prompt name (e.g. ``"deep_researcher/orchestrator"``).
+            name: Logical prompt name (e.g. ``"my_agent/system"``).
             version: Exact version string or alias. Defaults to ``"latest"``.
 
         Returns:

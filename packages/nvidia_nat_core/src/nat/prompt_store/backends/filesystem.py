@@ -18,8 +18,8 @@
 Directory layout::
 
     root_dir/
-      deep_researcher/
-        orchestrator/
+      my_agent/
+        system/
           aliases.yml          ← mutable; the only file that changes
           1.0.0/
             prompt.j2          ← raw template (human-readable)
@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
@@ -119,8 +120,7 @@ class FilesystemPromptStore(PromptStore):
         """Return the directory for a given prompt name.
 
         ``"/"`` in *name* becomes a directory separator, so
-        ``"deep_researcher/orchestrator"`` maps to
-        ``{root}/deep_researcher/orchestrator/``.
+        ``"my_agent/system"`` maps to ``{root}/my_agent/system/``.
         """
         return self._root.joinpath(*name.split("/"))
 
@@ -135,17 +135,36 @@ class FilesystemPromptStore(PromptStore):
             self._locks[name] = asyncio.Lock()
         return self._locks[name]
 
-    # ------------------------------------------------------------------
-    # Alias helpers (sync, called under lock)
-    # ------------------------------------------------------------------
+    def _require_prompt_dir(self, name: str) -> Path:
+        """Return the on-disk directory for *name*, raising if it is absent."""
+        pdir = self._prompt_dir(name)
+        if not pdir.exists():
+            raise PromptNotFoundError(f"Prompt '{name}' not found in store")
+        return pdir
 
-    def _read_aliases_sync(self, name: str) -> dict[str, str]:
-        path = self._aliases_path(name)
-        if not path.exists():
-            return {}
-        with path.open() as fh:
-            data = yaml.safe_load(fh) or {}
-        return {str(k): str(v) for k, v in data.items()}
+    def _sorted_version_dirs(self, pdir: Path) -> list[Path]:
+        """Subdirectories of *pdir* that contain a prompt file, sorted by folder name."""
+        return sorted(
+            (d for d in pdir.iterdir() if d.is_dir() and (d / _PROMPT_FILE).exists()),
+            key=lambda d: d.name,
+        )
+
+    async def _read_tags_from_version_dir(self, vdir: Path) -> tuple[str, ...]:
+        """Load ``tags`` from the version's ``meta.yml`` only (no prompt body I/O)."""
+        meta_path = vdir / _META_FILE
+        if not meta_path.exists():
+            return ()
+        async with aiofiles.open(meta_path) as fh:
+            raw = await fh.read()
+        meta = yaml.safe_load(raw) or {}
+        raw_tags = meta.get("tags", [])
+        if isinstance(raw_tags, list):
+            return tuple(str(t) for t in raw_tags)
+        return ()
+
+    # ------------------------------------------------------------------
+    # Alias helpers
+    # ------------------------------------------------------------------
 
     async def _read_aliases(self, name: str) -> dict[str, str]:
         path = self._aliases_path(name)
@@ -184,9 +203,7 @@ class FilesystemPromptStore(PromptStore):
     # ------------------------------------------------------------------
 
     async def get(self, name: str, version: str = "latest") -> PromptRecord:
-        pdir = self._prompt_dir(name)
-        if not pdir.exists():
-            raise PromptNotFoundError(f"Prompt '{name}' not found in store")
+        self._require_prompt_dir(name)
 
         canonical = await self._resolve_version(name, version)
         vdir = self._version_dir(name, canonical)
@@ -267,18 +284,11 @@ class FilesystemPromptStore(PromptStore):
         logger.debug("Stored prompt '%s' version '%s'", record.name, record.version)
 
     async def list_versions(self, name: str) -> list[str]:
-        pdir = self._prompt_dir(name)
-        if not pdir.exists():
-            raise PromptNotFoundError(f"Prompt '{name}' not found in store")
-
-        versions = sorted(
-            d.name
-            for d in pdir.iterdir()
-            if d.is_dir() and (d / _PROMPT_FILE).exists()
-        )
-        if not versions:
+        pdir = self._require_prompt_dir(name)
+        vdirs = self._sorted_version_dirs(pdir)
+        if not vdirs:
             raise PromptNotFoundError(f"No versions found for prompt '{name}'")
-        return versions
+        return [d.name for d in vdirs]
 
     async def list_names(self, tag: str | None = None) -> list[str]:
         if not self._root.exists():
@@ -292,20 +302,21 @@ class FilesystemPromptStore(PromptStore):
             if tag is None:
                 names.append(name)
             else:
-                # Check any version for the tag (reads first version found)
+                # Same behavior as before: tags from the first sorted version dir only.
                 try:
-                    versions = await self.list_versions(name)
-                    record = await self.get(name, versions[0])
-                    if tag in record.tags:
+                    pdir = self._require_prompt_dir(name)
+                    vdirs = self._sorted_version_dirs(pdir)
+                    if not vdirs:
+                        continue
+                    tags = await self._read_tags_from_version_dir(vdirs[0])
+                    if tag in tags:
                         names.append(name)
-                except (PromptNotFoundError, Exception):
+                except PromptNotFoundError:
                     pass
         return names
 
     async def set_alias(self, name: str, alias: str, version: str) -> None:
-        pdir = self._prompt_dir(name)
-        if not pdir.exists():
-            raise PromptNotFoundError(f"Prompt '{name}' not found in store")
+        self._require_prompt_dir(name)
 
         vdir = self._version_dir(name, version)
         if not vdir.exists():
@@ -319,9 +330,7 @@ class FilesystemPromptStore(PromptStore):
             await self._write_aliases(name, aliases)
 
     async def resolve_alias(self, name: str, alias: str) -> str:
-        pdir = self._prompt_dir(name)
-        if not pdir.exists():
-            raise PromptNotFoundError(f"Prompt '{name}' not found in store")
+        self._require_prompt_dir(name)
 
         aliases = await self._read_aliases(name)
         if alias not in aliases:
@@ -337,7 +346,6 @@ class FilesystemPromptStore(PromptStore):
                 f"Prompt '{name}' version '{version}' not found"
             )
 
-        import shutil
         async with self._lock(name):
             await asyncio.to_thread(shutil.rmtree, vdir)
 

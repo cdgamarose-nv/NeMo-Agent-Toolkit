@@ -44,7 +44,7 @@ class SearchSpace(BaseModel, Generic[T]):
     prompt_purpose: str | None = None  # purpose of the prompt
     prompt_format: Literal["f-string", "jinja2", "mustache"] | None = None  # auto-detected if None
     prompt_store: str | None = None  # registered store name to warm-start from
-    prompt_name: str | None = None  # store key e.g. "deep_researcher/orchestrator"
+    prompt_name: str | None = None  # store key e.g. "my_agent/system"
     prompt_version: str = "latest"  # version or alias to load
     prompt_output_store: str | None = None  # store to save best result to
     prompt_output_version: str | None = None  # version for saved result; auto-generates if None

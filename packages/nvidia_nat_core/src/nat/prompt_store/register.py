@@ -92,7 +92,7 @@ class PromptStoreMixin(BaseModel):
     )
     prompt_versions: dict[str, str] = Field(
         default_factory=dict,
-        description="Prompt name → version overrides, e.g. {\"orchestrator\": \"stable\"}. "
+        description="Prompt name → version overrides, e.g. {\"system\": \"stable\"}. "
                     "Defaults to 'latest' for any prompt not listed here.",
     )
 

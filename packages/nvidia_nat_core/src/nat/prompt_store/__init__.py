@@ -24,9 +24,10 @@ Quickstart::
     from nat.prompt_store import get_prompt_store
 
     store = get_prompt_store("my_store")
-    record = await store.get("deep_researcher/orchestrator", version="stable")
-    rendered = await store.render("deep_researcher/orchestrator", version="stable",
-                                   current_datetime="2026-01-01")
+    record = await store.get("my_agent/system", version="stable")
+    rendered = await store.render(
+        "my_agent/system", version="stable", current_datetime="2026-01-01"
+    )
 """
 
 from .base import AliasNotFoundError

@@ -23,7 +23,7 @@ Example::
     from nat.prompt_store.registry import get_prompt_store
 
     store = get_prompt_store("production_prompts")
-    record = await store.get("deep_researcher/orchestrator", "stable")
+    record = await store.get("my_agent/system", "stable")
 """
 
 from __future__ import annotations
@@ -50,6 +50,8 @@ def register_store(name: str, store: PromptStore) -> None:
         name: Unique store name (matches ``store_name`` in YAML config).
         store: Concrete :class:`PromptStore` instance.
     """
+    if name in _stores:
+        logger.debug("Replacing existing prompt store registered as %r", name)
     _stores[name] = store
 
 
@@ -70,7 +72,7 @@ def get_prompt_store(name: str) -> PromptStore:
     if name not in _stores:
         raise KeyError(
             f"Prompt store '{name}' is not registered. "
-            "Check that a prompt_store function with store_name='{name}' "
+            f"Check that a prompt_store function with store_name={name!r} "
             "appears in your NAT config."
         )
     return _stores[name]
@@ -102,7 +104,7 @@ async def fetch_prompts(
     Args:
         store_name: Value of ``config.prompt_store`` (``None`` = disabled).
         prompt_map: Maps short prompt name → store key, e.g.
-            ``{"orchestrator": "deep_researcher/orchestrator"}``.
+            ``{"system": "my_agent/system"}``.
         versions: Value of ``config.prompt_versions``; missing keys default
             to ``"latest"``.
 
@@ -143,6 +145,7 @@ async def fetch_prompts(
                 store_key,
                 version,
                 store_name,
+                exc_info=True,
             )
 
     return result
